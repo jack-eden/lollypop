@@ -1,43 +1,35 @@
-import argparse
+import os
 
-# globals
-name = ""
-fullpath = ""
-
-def get_args():
-    #get directory nickname as a string
-    #get directory path as a string
+def get_fullpath():
+    path = os.getcwd()
+    print(f"Lollypop starting from: {path}")
     #ignored files: for now we will always ignore .files no matter what, maybe in the future I can add something more sophisticated
-    #return args as a list
-    pass
+    return path
 
-def get_dir():
-    #check that directory path string is an absolute path
-    #return absolute path as a string
-    pass
+def get_parent(path):
+    segments = path.split("/")
+    return segments[-1]
 
-def get_dir_contents():
-    #list all files and folders in a given directory
-    #break list into two seperate lists for files and folders
-    #return as a list: [ [folders], [files] ]
-    pass
+def walk_path(path):
+    for (root,dirs,files) in os.walk(path, topdown=True):
+        for file in files:
+            parent = get_parent(root)
+            print(f"{parent}/{file}, {root}/{file}")
 
 
-
-def outfile():
-    #print string to console
+def outfile(output):
     pass
 
 def main():
-    #get args
-    #parse name out of args
-    #update global name
-    #parse full directory path out of args
-    #update global fullpath
-    #walking: set depth 0
-    #walking: use fullpath to get dir contents
-    #walking: 
-    print(rootpath)
+    fullpath = get_fullpath()
+    walk_path(fullpath)
+    #currentpath = get_current_path()
+    #contents = get_dir_contents(currentpath)
+    ##walking: set depth 0
+    ##walking: use fullpath to get dir contents
+    ##walking: 
+    #outfile(contents)
+    
 
 if __name__ == "__main__":
     main()
