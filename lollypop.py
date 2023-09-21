@@ -1,5 +1,6 @@
 import os
 import hashlib
+import sqlite3
 
 def get_fullpath():
     path = os.getcwd()
@@ -25,6 +26,16 @@ def get_md5sum(filepath):
 
 def walk_path(path):
     for (root,dirs,files) in os.walk(path, topdown=True):
+        for folder in dirs:
+            if folder[0] == ".":
+                dirs.remove(folder)
+            else:
+                continue
+        for file in files:
+            if file[0] == ".":
+                files.remove(file)
+            else:
+                continue
         for file in files:
             filepath = "/".join([root,file])
             parent = get_parent(root)
@@ -44,3 +55,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# 
+# https://docs.python.org/3/library/sqlite3.html
