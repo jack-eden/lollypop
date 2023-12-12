@@ -1,11 +1,14 @@
 import os
 import sys
+import shutil
 import hashlib
 import sqlite3
 import argparse
+from datetime import datetime
 
 def main():
     print("Lollypop starting...")
+    print("")
 
     args = startup()
     RUNNINGDIR = args[0]
@@ -22,7 +25,14 @@ def main():
     DBPATH = path_chunks[2]
 
     if DBEXISTS == True:
-        check_db([DBNAME, DBPATH]) # TODO
+        cya = backup_db([DBNAME, DBPATH])
+        if cya == False:
+            print(errstring["backup failed"])
+            aborting()
+        db_ok = check_db([DBNAME, DBPATH]) # TODO this and the backup should be part of the same service
+        if db_ok == False:
+            print(errstring["db error"])
+            aborting()
     else:
         create_db([DBNAME, DBPATH]) # TODO
     
@@ -30,13 +40,18 @@ def main():
     #print(f"using database: {dblocation}")
 
     #walk_path(SPATH)
+    print("done")
     aborting()
 
 
 
 def startup():
     runningdir = os.getcwd() # get the directory we're running in
-    runningdir = get_absolutepath(runningdir)
+    runningdir = get_absolutepath(runningdir) # when runningdir starts being used moved this check to a different function similar to check_path
+    if runningdir == False:
+        print(os.getcwd())
+        print(errstring["unknown dir"])
+        aborting()
     parser = argparse.ArgumentParser(
                     prog="Lollypop",
                     description="""
@@ -47,13 +62,17 @@ def startup():
                     help="path to sqlite database file")
     args = parser.parse_args()
     database = args.database.pop(0)
-    database = get_absolutepath(database)
     return [ runningdir, database ]
 
 
 
 def check_path(path):
     dbpath = get_absolutepath(path)
+    if dbpath == False:
+        print(os.getcwd())
+        print(errstring["unknown dir"])
+        aborting()
+    
     dbpath_isfile = os.path.isfile(dbpath)
     dbpath_isdir = os.path.isdir(dbpath) 
     segments = path.split("/")
@@ -67,7 +86,8 @@ def check_path(path):
         return [ exists, dbname, dbpath ]
     elif dbpath_isdir == True:
         dbname = "lollypop.db"
-        dbpath = "/".join(dbpath,dbname)
+        strings = [dbpath, dbname]
+        dbpath = "/".join(strings)
         exists = False
         return [ exists, dbname, dbpath ]
     else:
@@ -98,6 +118,7 @@ def input_confirm_db(list): # [ exists, dbname, dbpath ]
         print("n: change database")
         print("q: exit and quit")
         dialog = input("")
+        print("")
 
         match dialog:
             case "y" | "Y":
@@ -123,6 +144,7 @@ def input_db_path():
     while True:
         print("Please enter path to database or 'q' to quit:")
         dialog = input("")
+        print("")
 
         match dialog:
             case "q" | "Q":
@@ -159,14 +181,74 @@ def get_absolutepath(path):
         db = os.path.abspath(path)
     except Exception as error:
         print(f"{error}")
+        return False
     else:
         return db
 
 
 
+def backup_db(list): # [DBNAME, DBPATH]
+    print("Backing up database...")
+    dbname = list[0]
+    dbpath = list[1]
+
+    segments = dbpath.split("/")
+    del segments[-1]
+    dbdir = "/".join(segments)
+
+    currentDateAndTime = datetime.now()
+    timestamp = currentDateAndTime.strftime("%Y-%m-%d.%H:%M:%S")
+
+    bakname = f"{dbname}.{timestamp}.bak"
+    bak = [dbdir, bakname]
+    bakpath = "/".join(bak)
+
+    try:
+        shutil.copy2(dbpath, bakpath)
+    except Exception as error:
+        print(f"{error}")
+        return False
+    else:
+        print("Database backup created:")
+        print(bakpath)
+        print("")
+        return True
+
+
+
 def check_db(list):
-    print("check db")
-    print(list)
+    dbname = list[0]
+    dbpath = list[1]
+    print("Checking database...")
+    print("")
+
+    query = "SELECT tableName FROM sqlite_master WHERE type='table' AND tableName='ALLFILES'; "
+    response = query_db(dbpath, query)
+    if response == False:
+        return False
+    else:
+        print(dbpath)
+        print(f"{dbname} ok")
+        print("")
+        return True
+
+
+
+def query_db(db, string):
+    dbpath = db
+    query = string
+
+    con = sqlite3.connect(dbpath)
+    cur = con.cursor()
+
+    try:
+        response = cur.execute(query).fetchall
+    except sqlite3.Error as error:
+        print(f"{error}")
+        response = False
+    
+    con.close()
+    return response
 
 
 
@@ -212,7 +294,9 @@ errstring = {
     "invalid filetype": "supplied databased file does not end in .db",
     "input": "unrecognised input",
     "invalid name": "filenames must not include '/'",
-    "unknown dir": "specified directory not found"
+    "unknown dir": "specified directory not found",
+    "db error": "please check database file",
+    "backup failed": "Unable to create backup"
 }
 
 
