@@ -33,6 +33,7 @@ def main():
             question("Please confirm you are happy to create a NEW database at this location?")
             print(f"Creating new database at {suggestion}")
             push_db(suggestion,"CREATE TABLE [log] (key TEXT, value TEXT)")
+            push_db(suggestion,"CREATE TABLE [pool0] (md5sum TEXT, filepath TEXT, parent TEXT, filename TEXT, size TEXT, mdate TEXT)")
             push_db(suggestion,"INSERT INTO log VALUES ('name', :name)",{"name": name})
             push_db(suggestion,"INSERT INTO log VALUES ('edited', :time)",{"time": timestamp()})
         case "directory":
@@ -55,7 +56,7 @@ def main():
             target = target_info['path']
             question(f"Please confirm target directory: {target}")
             print(f"Walking {target}")
-            walk_path(target)
+            walk_path(target, suggestion)
         case _:
             print(f"Unknown path type: {database_info['path']}")
             abort(1)
@@ -156,8 +157,8 @@ def abort(status):
     sys.exit(status)
 
 def push_db(db, query, params=False):
-    print(f"query: {query}")
-    print(f"params: {params}")
+    #print(f"query: {query}")
+    #print(f"params: {params}")
     try:
         connection = sqlite3.connect(db)
         cursor = connection.cursor()
@@ -173,13 +174,13 @@ def push_db(db, query, params=False):
             cursor.execute(query,params)
     finally:
         connection.commit()
-        print(f"changes: {connection.total_changes}")
+        #print(f"changes: {connection.total_changes}")
         if connection is not None:
             connection.close()
 
 def pull_db(db, query, params=False):
-    print(f"query: {query}")
-    print(f"params: {params}")
+    #print(f"query: {query}")
+    #print(f"params: {params}")
     try:
         connection = sqlite3.connect(db)
         cursor = connection.cursor()
@@ -195,7 +196,7 @@ def pull_db(db, query, params=False):
             rows = cursor.execute(query,params).fetchall()
     finally:
         connection.commit()
-        print(f"changes: {connection.total_changes}")
+        #print(f"changes: {connection.total_changes}")
         if connection is not None:
             connection.close()
         return rows
@@ -223,7 +224,7 @@ def timestamp():
     timestamp = str(timestamp)
     return timestamp
 
-def walk_path(path):
+def walk_path(path, db):
     for (root,dirs,files) in os.walk(path, topdown=True):
         for folder in dirs:
             if folder[0] == ".":
@@ -239,7 +240,15 @@ def walk_path(path):
             size = get_size(filepath)
             mdate = get_modifidation_date(filepath)
             md5sum = get_md5sum(filepath)
-            print(f"{md5sum}, {filepath}, {parent}, {file}, {size}, {mdate}")
+            data = {
+                "md5sum": md5sum,
+                "filepath": filepath,
+                "parent": parent,
+                "filename": file,
+                "size": size,
+                "mdate": mdate
+            }
+            push_db(db,"INSERT INTO pool0 VALUES (:md5sum, :filepath, :parent, :filename, :size, :mdate)", data)
 
 def get_md5sum(filepath):
     BUF_SIZE = 65536  # 64kb
@@ -291,6 +300,7 @@ def get_modifidation_date(path):
     
     try:
         mtime = datetime.fromtimestamp(mtime)
+        mtime = str(mtime)
     except:
         print(f"Unknown date: {mtime}")
         abort(1)
