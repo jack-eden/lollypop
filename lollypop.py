@@ -1,6 +1,5 @@
 import os
 import sys
-import shutil
 import hashlib
 import sqlite3
 import argparse
@@ -11,6 +10,7 @@ def main():
     print("Lollypop starting")
     args = get_args()
     database = args[0]
+    target = args[1]
 
     # check database path is valid
     ## confirm the path given is a file or directory we can find and return the absolute path
@@ -20,7 +20,7 @@ def main():
     match database_info["path_type"]:
         case "file": #check the database is ours
             suggestion = database_info["path"]
-            question("Please confirm this is the path to database?")
+            question(f"Please confirm {suggestion} is the path to database?")
             print(f"Trying database: {database_info['path']}")
             rows = pull_db(suggestion,"SELECT key, value FROM log")
             print(rows)
@@ -42,6 +42,24 @@ def main():
             print(f"Unknown path type: {database_info['path']}")
             abort(1)
     
+    # check the path for the read directory is correct
+    target_info = test_path(target, "directory")
+    match target_info["path_type"]:
+        case "file":
+            print(f"Expected directory not file: {target_info['path']}")
+            abort(1)
+        case "not_found":
+            print(f"Target directory not found: {target_info['path']}")
+            abort(1)
+        case "directory":
+            target = target_info['path']
+            question(f"Please confirm target directory: {target}")
+            print(f"Walking {target}")
+            walk_path(target)
+        case _:
+            print(f"Unknown path type: {database_info['path']}")
+            abort(1)
+
     print("Done.")
 
 def get_args():
@@ -50,13 +68,18 @@ def get_args():
         description="Helper script written to dedup files across multiple hardrives",
         epilog="")
     parser.add_argument("database", type=str, nargs=1, help="Path to sqlite database file.")
+    parser.add_argument("target", type=str, nargs=1, help="Path to the directory you want to add to the dedupe database.")
     args = parser.parse_args()
     database = args.database.pop(0)
+    target = args.target.pop(0)
     if database == "":
-        print("Invalid path: \"\"")
-        sys.exit(1)
+        print("Invalid path to database: \"\"")
+        abort(1)
+    elif target == "":
+        print("Invalid path to target: \"\"")
+        abort(1)
     
-    return [ database ]
+    return [ database, target ]
 
 def test_path(path, test):
     try:
@@ -218,7 +241,7 @@ def walk_path(path):
             parent = parent.split("/")
             parent = parent[-1]
             md5sum = get_md5sum(filepath)
-            print(f"{md5sum}, {filepath}, {parent}/{file}")
+            print(f"{md5sum}, {filepath}, {parent}, {file}")
 
 def get_md5sum(filepath):
     BUF_SIZE = 65536  # 64kb
