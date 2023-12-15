@@ -7,256 +7,202 @@ import argparse
 from datetime import datetime
 
 def main():
-    print("Lollypop starting...")
-    print("")
+    # start-up
+    print("Lollypop starting")
+    args = get_args()
+    database = args[0]
 
-    args = startup()
-    RUNNINGDIR = args[0]
-    STARTDB = args[1]
+    # check database path is valid
+    ## confirm the path given is a file or directory we can find and return the absolute path
+    database_info = test_path(database, "return")
 
-    path_chunks = check_path(STARTDB) # [ exists, dbname, dbpath ] OR [ "error", error string, dbpath]
-    if path_chunks[0] == "error":
-        print(errstring[path_chunks[1]])
-        print("'",path_chunks[2],"'")
-        path_chunks = input_db_path()
-    path_chunks = input_confirm_db(path_chunks)
-    DBEXISTS = path_chunks[0]
-    DBNAME = path_chunks[1]
-    DBPATH = path_chunks[2]
-
-    if DBEXISTS == True:
-        cya = backup_db([DBNAME, DBPATH])
-        if cya == False:
-            print(errstring["backup failed"])
-            aborting()
-        db_ok = check_db([DBNAME, DBPATH]) # TODO this and the backup should be part of the same service
-        if db_ok == False:
-            print(errstring["db error"])
-            aborting()
-    else:
-        create_db([DBNAME, DBPATH]) # TODO
+    ## attempt to access and backup the database on the supplied path
+    match database_info["path_type"]:
+        case "file": #check the database is ours
+            suggestion = database_info["path"]
+            question("Please confirm this is the path to database?")
+            print(f"Trying database: {database_info['path']}")
+            rows = pull_db(suggestion,"SELECT key, value FROM log")
+            print(rows)
+            # TODO backup db here
+        case "not_found": #create a new database
+            suggestion = database_info["path"]
+            parent = path_segments(suggestion, "parent")
+            name = path_segments(suggestion, "file")
+            parent_info = test_path(parent, "directory")
+            question("Please confirm you are happy to create a NEW database at this location?")
+            print(f"Creating new database at {suggestion}")
+            push_db(suggestion,"CREATE TABLE [log] (key TEXT, value TEXT)")
+            push_db(suggestion,"INSERT INTO log VALUES ('name', :name)",{"name": name})
+            push_db(suggestion,"INSERT INTO log VALUES ('edited', :time)",{"time": timestamp()})
+        case "directory":
+            print(f"Expected file not directory: {database_info['path']}")
+            abort(1)
+        case _:
+            print(f"Unknown path type: {database_info['path']}")
+            abort(1)
     
-    #print(f"starting from: {SPATH}")
-    #print(f"using database: {dblocation}")
+    print("Done.")
 
-    #walk_path(SPATH)
-    print("done")
-    aborting()
-
-
-
-def startup():
-    runningdir = os.getcwd() # get the directory we're running in
-    runningdir = get_absolutepath(runningdir) # when runningdir starts being used moved this check to a different function similar to check_path
-    if runningdir == False:
-        print(os.getcwd())
-        print(errstring["unknown dir"])
-        aborting()
+def get_args():
     parser = argparse.ArgumentParser(
-                    prog="Lollypop",
-                    description="""
-                    Helper script written to dedup 
-                    files across multiple hardrives""",
-                    epilog="")
-    parser.add_argument("database", type=str, nargs="+",
-                    help="path to sqlite database file")
+        prog="Lollypop",
+        description="Helper script written to dedup files across multiple hardrives",
+        epilog="")
+    parser.add_argument("database", type=str, nargs=1, help="Path to sqlite database file.")
     args = parser.parse_args()
     database = args.database.pop(0)
-    return [ runningdir, database ]
-
-
-
-def check_path(path):
-    dbpath = get_absolutepath(path)
-    if dbpath == False:
-        print(os.getcwd())
-        print(errstring["unknown dir"])
-        aborting()
+    if database == "":
+        print("Invalid path: \"\"")
+        sys.exit(1)
     
-    dbpath_isfile = os.path.isfile(dbpath)
-    dbpath_isdir = os.path.isdir(dbpath) 
+    return [ database ]
+
+def test_path(path, test):
+    try:
+        absolutepath = os.path.abspath(path)
+    except Exception as error:
+        print(f"{print_err(1)}: {path}")
+        print(f"{error}")
+        sys.exit(1)
+    
+    isfile = os.path.isfile(absolutepath)
+    isdir = os.path.isdir(absolutepath)
+
+    match test:
+        case "return":
+            if isfile == True:
+                result = "file"
+            elif isdir == True:
+                result = "directory"
+            else:
+                print(f"Unknown path: {absolutepath}")
+                result = "not_found"
+        case "file":
+            if isfile == True and test == "file":
+                result = "file"
+            elif isfile == False and test == "file":
+                print(f"Expected file not found, {absolutepath} is a directory.")
+                sys.exit(1)
+        case "directory":
+            if isdir == True and test == "directory":
+                result = "directory"
+            elif isdir == False and test == "directory":
+                print(f"Expected directory not found, {absolutepath} is a file.")
+                sys.exit(1)
+        case _:
+            print(f"No test condition supplied for given path: {absolutepath}")
+            sys.exit(1)
+    
+    return { "path": absolutepath, "path_type": result }
+
+def path_segments(path, requested_segment):
     segments = path.split("/")
+    file = segments[-1]
+    del segments[-1]
+    parent = "/".join(segments)
 
-    if dbpath_isfile == True:
-        dbname = segments[-1]
-        filetype = check_filetype(dbname)
-        if filetype == False:
-            return [ "error", "invalid filetype", dbpath]
-        exists = True
-        return [ exists, dbname, dbpath ]
-    elif dbpath_isdir == True:
-        dbname = "lollypop.db"
-        strings = [dbpath, dbname]
-        dbpath = "/".join(strings)
-        exists = False
-        return [ exists, dbname, dbpath ]
-    else:
-        dbname = segments[-1]
-        del segments[-1]
-        dbdir = "/".join(segments)
-        dbpath_isdir = os.path.isdir(dbdir) 
-        if dbpath_isdir == False:
-            return [ "error", "unknown dir", dbpath]
-        filetype = check_filetype(dbname)
-        if filetype == False:
-            return [ "error", "invalid filetype", dbpath]
-        exists = False
-        return [ exists, dbname, dbpath ]
+    match requested_segment:
+        case "file":
+            return file
+        case "parent":
+            return parent
+        case _:
+            print(f"Unknown path segment request: {requested_segment}")
+            sys.exit(1)
 
-
-
-def input_confirm_db(list): # [ exists, dbname, dbpath ]
-    exists = list[0]
-    dbname = list[1]
-    dbpath = list[2]
-
+def question(text):
     while True:
-        print(f"database name: {dbpath}")
-        print("continue with current database?:")
-        print("")
-        print("y: continue with these settings")
-        print("n: change database")
-        print("q: exit and quit")
-        dialog = input("")
-        print("")
+        print(text)
+        print("[Y]es, [N]o, [Q]uit")
+        dialog = input()
 
         match dialog:
             case "y" | "Y":
                 break
             case "n" | "N":
-                newpath = input_db_path()
-                input_confirm_db(newpath)
+                abort(0)
             case "q" | "Q":
-                aborting()
+                abort(0)
             case _:
-                print(errstring["input"])
+                print("Unrecognised input")
                 continue
-    
-    exists = exists
-    dbname = dbname
-    dbpath = dbpath
-    return [ exists, dbname, dbpath ]
 
+def abort(status):
+    print("Aborting")
+    sys.exit(status)
 
-
-def input_db_path():
-    # TODO add prefill suggestion that uses current dbpath or startdir
-    while True:
-        print("Please enter path to database or 'q' to quit:")
-        dialog = input("")
-        print("")
-
-        match dialog:
-            case "q" | "Q":
-                aborting()
-            case _:
-                path_chunks = check_path(dialog) # [ exists, dbname, dbpath ] OR [ "error", error string, dbpath]
-                if path_chunks[0] == "error":
-                    print(errstring[path_chunks[1]])
-                    print("'",path_chunks[2],"'")
-                    input_db_path()
-                return path_chunks
-                
-
-
-
-def check_filetype(filename):
+def push_db(db, query, params=False):
+    print(f"query: {query}")
+    print(f"params: {params}")
     try:
-        segments = filename.split(".")  
-    except:
-        dbext = False
+        connection = sqlite3.connect(db)
+        cursor = connection.cursor()
+    except Error as message:
+        print(message)
+        condition.close()
+        abort(1)
     else:
-        ext = segments[-1]
-        if ext == "db":
-            dbext = True
+        if params == False:
+            cursor.execute(query)
         else:
-            dbext = False
+            params = (params)
+            cursor.execute(query,params)
     finally:
-        return dbext
+        connection.commit()
+        print(f"changes: {connection.total_changes}")
+        if connection is not None:
+            connection.close()
 
-
-
-def get_absolutepath(path):
+def pull_db(db, query, params=False):
+    print(f"query: {query}")
+    print(f"params: {params}")
     try:
-        db = os.path.abspath(path)
-    except Exception as error:
-        print(f"{error}")
-        return False
+        connection = sqlite3.connect(db)
+        cursor = connection.cursor()
+    except Error as message:
+        print(message)
+        condition.close()
+        abort(1)
     else:
-        return db
+        if params == False:
+            rows = cursor.execute(query).fetchall()
+        else:
+            params = (params)
+            rows = cursor.execute(query,params).fetchall()
+    finally:
+        connection.commit()
+        print(f"changes: {connection.total_changes}")
+        if connection is not None:
+            connection.close()
+        return rows
 
-
-
-def backup_db(list): # [DBNAME, DBPATH]
-    print("Backing up database...")
-    dbname = list[0]
-    dbpath = list[1]
-
-    segments = dbpath.split("/")
-    del segments[-1]
-    dbdir = "/".join(segments)
-
-    currentDateAndTime = datetime.now()
-    timestamp = currentDateAndTime.strftime("%Y-%m-%d.%H:%M:%S")
-
-    bakname = f"{dbname}.{timestamp}.bak"
-    bak = [dbdir, bakname]
-    bakpath = "/".join(bak)
-
+def timestamp_db(db):
     try:
-        shutil.copy2(dbpath, bakpath)
-    except Exception as error:
-        print(f"{error}")
-        return False
+        connection = sqlite3.connect(db)
+        cursor = connection.cursor()
+    except Error as message:
+        print(message)
+        condition.close()
+        abort(1)
     else:
-        print("Database backup created:")
-        print(bakpath)
-        print("")
-        return True
+        data = (
+            {"time": timestamp()}
+        )
+        cursor.execute("""UPDATE log SET value = :time WHERE key = 'edited'""", data)
+    finally:
+        connection.commit()
+        if connection is not None:
+            connection.close()
 
-
-
-def check_db(list):
-    dbname = list[0]
-    dbpath = list[1]
-    print("Checking database...")
-    print("")
-
-    query = "SELECT tableName FROM sqlite_master WHERE type='table' AND tableName='ALLFILES'; "
-    response = query_db(dbpath, query)
-    if response == False:
-        return False
-    else:
-        print(dbpath)
-        print(f"{dbname} ok")
-        print("")
-        return True
-
-
-
-def query_db(db, string):
-    dbpath = db
-    query = string
-
-    con = sqlite3.connect(dbpath)
-    cur = con.cursor()
-
-    try:
-        response = cur.execute(query).fetchall
-    except sqlite3.Error as error:
-        print(f"{error}")
-        response = False
-    
-    con.close()
-    return response
-
-
-
-def create_db(list):
-    print("create db")
-    print(list)
-
-
+def timestamp():
+    timestamp = datetime.now()
+    timestamp = str(timestamp)
+    timestamp = timestamp.replace("-", "")
+    timestamp = timestamp.replace(" ", "")
+    timestamp = timestamp.replace(":", "")
+    timestamp = timestamp.replace(".", "")
+    return timestamp
 
 def walk_path(path):
     for (root,dirs,files) in os.walk(path, topdown=True):
@@ -274,8 +220,6 @@ def walk_path(path):
             md5sum = get_md5sum(filepath)
             print(f"{md5sum}, {filepath}, {parent}/{file}")
 
-
-
 def get_md5sum(filepath):
     BUF_SIZE = 65536  # 64kb
     md5 = hashlib.md5()
@@ -288,26 +232,5 @@ def get_md5sum(filepath):
     md5sum = md5.hexdigest()
     return md5sum
 
-
-
-errstring = {
-    "invalid filetype": "supplied databased file does not end in .db",
-    "input": "unrecognised input",
-    "invalid name": "filenames must not include '/'",
-    "unknown dir": "specified directory not found",
-    "db error": "please check database file",
-    "backup failed": "Unable to create backup"
-}
-
-
-
-def aborting():
-    sys.exit("Lollypop exiting...")
-
-
-
 if __name__ == "__main__":
     main()
-
-# https://www.youtube.com/watch?v=byHcYRpMgI4
-# https://docs.python.org/3/library/sqlite3.html
