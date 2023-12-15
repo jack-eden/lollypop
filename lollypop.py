@@ -221,10 +221,6 @@ def timestamp_db(db):
 def timestamp():
     timestamp = datetime.now()
     timestamp = str(timestamp)
-    timestamp = timestamp.replace("-", "")
-    timestamp = timestamp.replace(" ", "")
-    timestamp = timestamp.replace(":", "")
-    timestamp = timestamp.replace(".", "")
     return timestamp
 
 def walk_path(path):
@@ -240,8 +236,10 @@ def walk_path(path):
             parent = root
             parent = parent.split("/")
             parent = parent[-1]
+            size = get_size(filepath)
+            mdate = get_modifidation_date(filepath)
             md5sum = get_md5sum(filepath)
-            print(f"{md5sum}, {filepath}, {parent}, {file}")
+            print(f"{md5sum}, {filepath}, {parent}, {file}, {size}, {mdate}")
 
 def get_md5sum(filepath):
     BUF_SIZE = 65536  # 64kb
@@ -254,6 +252,51 @@ def get_md5sum(filepath):
             md5.update(data)
     md5sum = md5.hexdigest()
     return md5sum
+
+def get_size(path):
+    try:
+        size = os.path.getsize(path)
+    except:
+        size = "0kB"
+    else:
+        # os.path.getsize returns in bytes
+        # 1000 bytes in a kilobyte (kB)
+        # 1000000 bytes in a megabyte (MB)
+        # 1000000000 bytes in a gigabyte (GB)
+        # TODO: test for where to put the decimal in order to convert sizes
+        if size <= 999:
+            size = str(size)
+            size = f"{size}B"
+        elif size <= 999999:
+            size = size/1000
+            size = round(size, 2)
+            size = str(size)
+            size = f"{size}MB"
+        elif size >= 1000000:
+            size = size/1000000
+            size = round(size, 2)
+            size = str(size)
+            size = f"{size}GB"
+        else:
+            print(f"Unknown file size: {size}")
+            abort(1)    
+    finally:
+        return size
+
+def get_modifidation_date(path):
+    try:
+        mtime = os.path.getmtime(path)
+    except:
+        mtime = 0
+    
+    try:
+        mtime = datetime.fromtimestamp(mtime)
+    except:
+        print(f"Unknown date: {mtime}")
+        abort(1)
+    finally:
+        return mtime
+    
 
 if __name__ == "__main__":
     main()
